@@ -3,7 +3,7 @@ from supabase import create_client
 import pandas as pd
 import plotly.express as px
 
-# 1. CONFIGURAÇÕES INICIAIS
+# 1. CONFIGURAÇÕES INICIAIS E SEGURANÇA
 st.set_page_config(page_title="Controle Inteligente", layout="wide")
 
 @st.cache_resource
@@ -12,10 +12,25 @@ def init_supabase():
 
 supabase = init_supabase()
 
-# 2. INTERFACE DO APLICATIVO
-st.title("📊 Gestor Financeiro")
+# Camada de sanitização de dados (caso a IA desobedeça a regra de formatação)
+def limpar_dinheiro(val):
+    if pd.isna(val): return 0.0
+    val_str = str(val).upper().replace('R$', '').strip()
+    
+    if ',' in val_str and '.' in val_str:
+        val_str = val_str.replace('.', '').replace(',', '.')
+    elif ',' in val_str:
+        val_str = val_str.replace(',', '.')
+        
+    try:
+        return float(val_str)
+    except:
+        return 0.0
 
-tab1, tab2, tab3 = st.tabs(["✍️ Manual", "📁 Upload de CSV", "📈 Dashboard"])
+# 2. INTERFACE DO APLICATIVO
+st.title("📊 Gestor Financeiro Automático")
+
+tab1, tab2, tab3 = st.tabs(["✍️ Manual", "📁 Upload Padronizado", "📈 Dashboard"])
 
 # --- ABA 1: REGISTRO MANUAL ---
 with tab1:
@@ -41,48 +56,47 @@ with tab1:
             else:
                 st.warning("Preencha todos os campos corretamente.")
 
-# --- ABA 2: UPLOAD APENAS CSV ---
+# --- ABA 2: UPLOAD PADRONIZADO (Leitura do CSV do Gemini) ---
 with tab2:
-    st.subheader("Suba a planilha CSV gerada pelo Gemini")
-    arquivo_upload = st.file_uploader("Envie o arquivo .csv", type=['csv'])
+    st.subheader("Suba o arquivo .csv gerado pelo Super Prompt")
+    
+    arquivo_upload = st.file_uploader("Envie o arquivo", type=['csv'])
     
     if arquivo_upload:
         try:
-            # Lendo o formato específico do arquivo anexado (separador por vírgula)
-            df_csv = pd.read_csv(arquivo_upload, sep=',')
+            # Força a leitura usando o ponto e vírgula delimitado no prompt
+            df_csv = pd.read_csv(arquivo_upload, sep=';', dtype=str)
             
-            st.write("Visão Geral da Planilha:")
-            st.dataframe(df_csv[['Descrição', 'Categoria', 'Valor Líquido (R$)']].head(10))
+            # Validação estrita de Schema
+            colunas_esperadas = ['Data', 'Local', 'Item', 'Categoria', 'Valor']
             
-            # Campo extra para definir o "Local" de toda a compra
-            local_compra = st.text_input("Qual o nome do estabelecimento (Local)?", placeholder="Ex: Supermercado Assaí")
-            
-            if st.button("Salvar Lista no Banco de Dados"):
-                if not local_compra:
-                    st.warning("Por favor, digite o nome do estabelecimento antes de salvar.")
-                else:
-                    # Mapeia as colunas da planilha para as colunas do banco de dados
+            if all(col in df_csv.columns for col in colunas_esperadas):
+                st.success("✅ Arquivo reconhecido e validado com sucesso!")
+                st.dataframe(df_csv)
+                
+                if st.button("Gravar no Banco de Dados", type="primary"):
+                    # Mapeia diretamente as colunas do CSV para o padrão do Supabase
                     df_banco = pd.DataFrame()
-                    df_banco['item'] = df_csv['Descrição']
+                    df_banco['item'] = df_csv['Item']
+                    df_banco['local'] = df_csv['Local']
                     df_banco['categoria'] = df_csv['Categoria']
-                    df_banco['valor'] = df_csv['Valor Líquido (R$)']
-                    df_banco['local'] = local_compra
-                    
-                    # Garantir que não haja itens vazios
-                    df_banco['categoria'] = df_banco['categoria'].fillna('Outros')
-                    df_banco['valor'] = df_banco['valor'].fillna(0.0)
-                    df_banco['item'] = df_banco['item'].fillna('Item Desconhecido')
+                    df_banco['valor'] = df_csv['Valor'].apply(limpar_dinheiro)
                     
                     dados_lote = df_banco.to_dict(orient="records")
                     
                     try:
                         supabase.table("despesas").insert(dados_lote).execute()
-                        st.success(f"{len(dados_lote)} itens registrados com sucesso no banco!")
+                        st.balloons() # Um pequeno feedback visual de sucesso
+                        st.success(f"Excelente! {len(dados_lote)} registros inseridos no banco.")
                     except Exception as db_erro:
-                        st.error(f"Erro ao inserir no banco: {db_erro}")
-                        
+                        st.error(f"Erro de SQL ao inserir no banco: {db_erro}")
+            else:
+                st.error("❌ O arquivo não possui o padrão correto de colunas.")
+                st.write(f"**Esperado:** {colunas_esperadas}")
+                st.write(f"**Encontrado:** {df_csv.columns.tolist()}")
+                
         except Exception as e:
-            st.error(f"Erro ao ler arquivo: {e}. Verifique se as colunas estão corretas.")
+            st.error(f"Erro de processamento: {e}. O arquivo pode estar corrompido ou vazio.")
 
 # --- ABA 3: DASHBOARD ---
 with tab3:
@@ -112,6 +126,6 @@ with tab3:
             st.write("📋 Histórico Completo:")
             st.dataframe(df[['data_registro', 'item', 'local', 'categoria', 'valor']].sort_values(by="data_registro", ascending=False))
         else:
-            st.info("Nenhum dado cadastrado ainda. Vá nas abas anteriores e registre algo!")
+            st.info("Nenhum dado cadastrado ainda.")
     except Exception as e:
         st.error(f"Erro ao carregar dashboard: {e}")
