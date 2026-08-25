@@ -81,17 +81,39 @@ with tab2:
         # Se for CSV (Lote)
         if tipo == 'csv':
             try:
-                df_csv = pd.read_csv(arquivo_upload)
-                st.write("Pré-visualização dos dados do CSV:")
-                st.dataframe(df_csv)
+                # O sep=';' força o Python a ler o formato brasileiro corretamente
+                df_csv = pd.read_csv(arquivo_upload, sep=';')
                 
-                if st.button("Salvar CSV no Banco de Dados"):
-                    # Converte o DataFrame para lista de dicionários e envia
-                    dados_lote = df_csv.to_dict(orient="records")
-                    supabase.table("despesas").insert(dados_lote).execute()
-                    st.success(f"{len(dados_lote)} registros salvos com sucesso!")
+                # Traduz as colunas da sua fatura para as colunas do nosso banco
+                df_csv = df_csv.rename(columns={
+                    'Descrição': 'item',
+                    'Nome no Cartão': 'local', 
+                    'Valor (em R$)': 'valor',
+                    'Categoria': 'categoria'
+                })
+                
+                # Preenche as categorias vazias com 'Outros' para evitar erros
+                if 'categoria' in df_csv.columns:
+                    df_csv['categoria'] = df_csv['categoria'].fillna('Outros')
+                
+                # Lista das colunas exatas que o banco de dados aceita
+                colunas_banco = ['item', 'local', 'valor', 'categoria']
+                
+                # Verifica se a tradução deu certo
+                if all(c in df_csv.columns for c in colunas_banco):
+                    st.write("Pré-visualização dos dados ajustados:")
+                    st.dataframe(df_csv[colunas_banco])
+                    
+                    if st.button("Salvar CSV no Banco de Dados"):
+                        # Pega apenas as 4 colunas necessárias e envia para o Supabase
+                        dados_lote = df_csv[colunas_banco].to_dict(orient="records")
+                        supabase.table("despesas").insert(dados_lote).execute()
+                        st.success(f"{len(dados_lote)} registros salvos com sucesso!")
+                else:
+                    st.error(f"Não foi possível organizar as colunas. O arquivo possui: {', '.join(df_csv.columns)}")
+                    
             except Exception as e:
-                st.error("Erro ao ler CSV. Garanta que ele tenha as colunas: item, local, valor, categoria.")
+                st.error(f"Erro ao ler CSV: {e}")
         
         # Se for Imagem ou PDF (Usa a IA)
         else:
