@@ -21,28 +21,52 @@ supabase = init_supabase()
 genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
 model = genai.GenerativeModel('gemini-1.5-flash')
 
-# 2. FUNÇÃO DA INTELIGÊNCIA ARTIFICIAL
+# 2. FUNÇÃO DA INTELIGÊNCIA ARTIFICIAL (Atualizada para Debug)
 def extrair_dados_com_ia(conteudo, tipo_arquivo="texto"):
+    # Melhoramos o prompt para ser mais robusto com recibos complexos
     prompt = """
-    Você é um assistente financeiro. Analise este comprovante/nota fiscal.
-    Extraia os seguintes dados e retorne ESTRITAMENTE um arquivo JSON válido, sem nenhuma formatação markdown ou texto extra:
+    Você é um assistente financeiro de elite especializado em leitura de comprovantes e notas fiscais.
+    Sua missão é analisar esta imagem/texto e extrair os dados de compra com precisão.
+    
+    1. Identifique o item principal (ou um resumo curto, ex: "Compra Mercado", "Almoço").
+    2. Identifique o estabelecimento (local).
+    3. Identifique o VALOR TOTAL Pago em Reais (use ponto para decimais).
+    4. Categorize o gasto em: Alimentação, Transporte, Saúde, Educação, Lazer, Moradia, ou Outros.
+    
+    **IMPORTANTE:** Sua resposta DEVE SER ESTRITAMENTE um arquivo JSON válido. Não inclua texto extra, markdown (```json), comentários ou qualquer coisa que não seja o próprio objeto JSON abaixo:
     {
-        "item": "nome do produto principal ou resumo da compra",
-        "local": "nome do estabelecimento",
-        "valor": 0.00,
-        "categoria": "escolha uma: Alimentação, Transporte, Saúde, Educação, Lazer, Moradia, ou Outros"
+        "item": "string",
+        "local": "string",
+        "valor": number (ex: 12.34),
+        "categoria": "string"
     }
     """
+    
     try:
+        # Tenta gerar o conteúdo usando o Gemini 1.5 Flash
         if tipo_arquivo == "imagem":
             response = model.generate_content([prompt, conteudo])
         else:
             response = model.generate_content(f"{prompt}\n\nConteúdo:\n{conteudo}")
             
+        # Tenta limpar e converter para JSON
+        # O .strip() e os replaces removem as aspas de markdown que o Gemini às vezes coloca.
         texto_limpo = response.text.replace("```json", "").replace("```", "").strip()
-        return json.loads(texto_limpo)
+        
+        # Se a resposta estiver vazia, retorna um erro específico
+        if not texto_limpo:
+            return None, "O Gemini retornou uma resposta vazia. Tente uma foto mais nítida ou com melhor iluminação."
+            
+        # Tenta converter a string limpa para um dicionário Python (JSON)
+        data = json.loads(texto_limpo)
+        return data, None
+        
+    except json.JSONDecodeError:
+        # Se o Gemini responder texto em vez de JSON, capturamos o texto real para debug
+        return None, f"A IA não respondeu no formato correto. Texto recebido:\n{response.text}"
     except Exception as e:
-        return None
+        # Captura qualquer outro erro de conexão ou API
+        return None, f"Ocorreu um erro na API do Gemini: {e}"
 
 # 3. INTERFACE DO APLICATIVO (ABAS)
 st.title("📊 Gestor Financeiro com IA")
@@ -123,7 +147,17 @@ with tab2:
                 if tipo in ['png', 'jpg', 'jpeg']:
                     img = Image.open(arquivo_upload)
                     st.image(img, width=300)
-                    dados_extraidos = extrair_dados_com_ia(img, "imagem")
+                    # A função agora retorna dois valores: dados e o erro
+                    dados_extraidos, erro_ia = extrair_dados_com_ia(img, "imagem")
+                
+                # ... (o bloco do PDF continua aqui, modifique a chamada dele também para dados_extraidos, erro_ia)
+                
+                # Nova lógica de exibição de erro
+                if dados_extraidos:
+                    # ... (o formulário de revisão continua igual)
+                else:
+                    # Mostra o erro detalhado que a função nos deu
+                    st.error(f"Erro da Inteligência Artificial: {erro_ia}")
                 
                 elif tipo == 'pdf':
                     texto_pdf = ""
