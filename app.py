@@ -18,7 +18,21 @@ supabase = init_supabase()
 
 # Configurar IA do Google (Gemini)
 genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
-model = genai.GenerativeModel('gemini-1.5-pro-latest')
+
+# Busca o melhor modelo disponível automaticamente para evitar Erro 404
+modelo_disponivel = 'gemini-1.5-flash'
+try:
+    para_uso = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
+    if any('1.5-pro' in m for m in para_uso):
+        modelo_disponivel = 'gemini-1.5-pro'
+    elif any('1.5-flash' in m for m in para_uso):
+        modelo_disponivel = 'gemini-1.5-flash'
+    elif any('gemini-pro-vision' in m for m in para_uso):
+        modelo_disponivel = 'gemini-pro-vision'
+except Exception:
+    pass
+
+model = genai.GenerativeModel(modelo_disponivel)
 
 # 2. FUNÇÃO DA INTELIGÊNCIA ARTIFICIAL
 def extrair_dados_com_ia(conteudo, tipo_arquivo="texto"):
