@@ -2,6 +2,6 @@ streamlit
 supabase
 pandas
 plotly
-google-generativeai
+google-generativeai>=0.8.0
 pillow
 pdfplumber
