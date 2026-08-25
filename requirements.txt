@@ -1,2 +1,7 @@
 streamlit
-supabase
+    supabase
+    pandas
+    plotly
+    google-generativeai
+    pillow
+    pdfplumber
