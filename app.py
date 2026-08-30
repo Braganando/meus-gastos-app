@@ -9,18 +9,33 @@ from PIL import Image
 st.set_page_config(page_title="Meus Gastos", page_icon="📸")
 
 st.title("📸 Leitor de Notas e Recibos")
-st.write("Tire uma foto do seu comprovante para extrair os dados e gerar o Excel!")
+st.write("Envie um comprovante para extrair os dados e gerar o Excel!")
 
-# Componente que acessa a câmera do celular
-foto = st.camera_input("Tire a foto do documento")
+# Criação de abas para organizar as opções
+aba1, aba2 = st.tabs(["📸 Tirar Foto", "📁 Escolher da Galeria"])
 
-if foto:
+imagem_selecionada = None
+
+# Opção 1: Câmera
+with aba1:
+    foto_camera = st.camera_input("Tire a foto do documento")
+    if foto_camera:
+        imagem_selecionada = foto_camera
+
+# Opção 2: Upload de arquivo (Fototeca)
+with aba2:
+    foto_arquivo = st.file_uploader("Escolha uma imagem da sua galeria", type=['jpg', 'jpeg', 'png'])
+    if foto_arquivo:
+        imagem_selecionada = foto_arquivo
+
+# Se alguma imagem foi inserida (seja pela câmera ou upload), executa o código
+if imagem_selecionada:
     with st.spinner("A Inteligência Artificial está lendo a imagem..."):
         try:
             # Conecta com a chave da API
             genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
             
-            image = Image.open(foto)
+            image = Image.open(imagem_selecionada)
             model = genai.GenerativeModel('gemini-1.5-flash')
             
             # O comando (prompt) que enviamos para o Gemini
