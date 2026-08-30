@@ -17,7 +17,7 @@ foto = st.camera_input("Tire a foto do documento")
 if foto:
     with st.spinner("A Inteligência Artificial está lendo a imagem..."):
         try:
-            # Conecta com a chave da API (que vamos configurar no próximo passo)
+            # Conecta com a chave da API
             genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
             
             image = Image.open(foto)
@@ -42,17 +42,26 @@ if foto:
             
             # Limpeza do texto para garantir que o computador entenda a tabela
             texto_limpo = response.text.strip()
-            if texto_limpo.startswith("
-```json"):
-                texto_limpo = texto_limpo.replace("
-```json", "", 1)
-            if texto_limpo.endswith("
-```"):
-                texto_limpo = texto_limpo[::-1].replace("
-http://googleusercontent.com/immersive_entry_chip/0
-
-5. Role até o final da página e clique no botão verde **"Commit changes..."** (e confirme no botão verde da janelinha).
-
-*(Nota: Deixei a parte do "salvar no Banco de Dados" de fora desse código por enquanto, para o aplicativo não dar erro caso o banco não exista ainda. Vamos adicionar isso depois que o básico estiver funcionando).*
-
-Quando terminar, **me responda com um "Ok" para irmos para a Tarefa 4 (Pegar a chave do Gemini).**
+            texto_limpo = texto_limpo.removeprefix("```json").removesuffix("```").strip()
+            
+            # Converte a resposta em Tabela (DataFrame)
+            dados = json.loads(texto_limpo)
+            df = pd.DataFrame(dados)
+            
+            st.success("Dados extraídos com sucesso!")
+            st.dataframe(df) # Mostra a tabela na tela
+            
+            # Gera o arquivo Excel para baixar
+            buffer = io.BytesIO()
+            with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
+                df.to_excel(writer, index=False, sheet_name='Gastos')
+                
+            st.download_button(
+                label="⬇️ Baixar Planilha (Excel)",
+                data=buffer.getvalue(),
+                file_name="meus_gastos.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
+            
+        except Exception as e:
+            st.error(f"Não foi possível ler esta imagem. Erro técnico: {e}")
