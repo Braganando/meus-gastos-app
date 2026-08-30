@@ -11,7 +11,7 @@ import plotly.express as px
 st.set_page_config(page_title="Meus Gastos", page_icon="📸", layout="wide")
 
 st.title("📸 Leitor de Notas e Dashboard Financeiro")
-st.write("Extraia itens, importe planilhas e cruze os dados!")
+st.write("A base é o seu banco (Mobilis). As notas detalham as compras!")
 
 # Função segura para conectar ao banco
 @st.cache_resource
@@ -21,7 +21,7 @@ def get_engine():
     return None
 
 # Criação das 4 abas
-aba1, aba2, aba3, aba4 = st.tabs(["📸 Tirar Foto", "📁 Foto da Galeria", "📊 Subir Planilha (Mobilis)", "📈 Dashboard e Gráficos"])
+aba1, aba2, aba3, aba4 = st.tabs(["📸 Tirar Foto", "📁 Foto da Galeria", "📊 Subir Planilha (Mobilis)", "📈 Dashboard Consolidado"])
 
 imagem_selecionada = None
 
@@ -43,7 +43,6 @@ if imagem_selecionada:
             image = Image.open(imagem_selecionada)
             model = genai.GenerativeModel('gemini-3.6-flash')
             
-            # PROMPT ATUALIZADO: Usando as categorias que você pediu
             prompt = """
             Analise esta imagem (recibo ou nota fiscal).
             Extraia CADA ITEM listado na nota e também o VALOR TOTAL pago na nota.
@@ -52,7 +51,7 @@ if imagem_selecionada:
             1. "Data": Data da compra (DD/MM/AAAA).
             2. "Item": Nome do produto.
             3. "Valor_Item": Preço daquele item (só número, ex: 15.50).
-            4. "Categoria": Categoria lógica do item. Use categorias específicas como: Açougue, Bebidas, Padaria, Farmácia, Impostos, Seguro, Utilidades Domésticas, Higiene, Limpeza, Hortifruti, etc.
+            4. "Categoria": Categoria lógica do item (Açougue, Bebidas, Padaria, Farmácia, Limpeza, Hortifruti, etc).
             5. "Valor_Total_Nota": O valor total final da nota inteira.
             
             Retorne EXCLUSIVAMENTE um formato JSON válido (uma lista de dicionários).
@@ -101,79 +100,132 @@ with aba3:
 
 # ---------------- ABA 4: DASHBOARD E CRUZAMENTO ----------------
 with aba4:
-    st.header("📈 Gráficos de Despesas")
+    st.header("📈 Dashboard Consolidado (Mobilis + Notas)")
     engine = get_engine()
     
     if engine:
         tem_notas = False
         try:
             df_notas = pd.read_sql_table('gastos_itens', engine)
-            tem_notas = True
+            if not df_notas.empty:
+                df_notas['Data'] = pd.to_datetime(df_notas['Data'], dayfirst=True, errors='coerce').dt.strftime('%d/%m/%Y')
+                tem_notas = True
         except ValueError:
             pass 
             
         tem_mobilis = False
         try:
             df_mobilis = pd.read_sql_table('gastos_bancarios', engine)
-            tem_mobilis = True
+            if not df_mobilis.empty:
+                # Padroniza as colunas do Mobilis
+                col_val = [c for c in df_mobilis.columns if 'valor' in c.lower() or 'amount' in c.lower() or 'saída' in c.lower()]
+                col_val = col_val[0] if col_val else None
+                
+                col_cat = [c for c in df_mobilis.columns if 'categoria' in c.lower()]
+                col_cat = col_cat[0] if col_cat else 'Categoria'
+                if col_cat not in df_mobilis.columns: df_mobilis[col_cat] = 'Outros'
+                
+                col_desc = [c for c in df_mobilis.columns if 'descri' in c.lower()]
+                col_desc = col_desc[0] if col_desc else 'Descrição'
+                if col_desc not in df_mobilis.columns: df_mobilis[col_desc] = 'Despesa'
+                
+                if col_val:
+                    df_mobilis['Valor_Num'] = pd.to_numeric(df_mobilis[col_val], errors='coerce').abs()
+                    df_mobilis['Data_str'] = pd.to_datetime(df_mobilis['Data'], dayfirst=True, errors='coerce').dt.strftime('%d/%m/%Y')
+                    tem_mobilis = True
         except ValueError:
             pass
 
-        if tem_notas and not df_notas.empty:
+        # LÓGICA DE CRUZAMENTO (MATCH)
+        if tem_mobilis:
+            master_records = []
+            notas_usadas = set()
             
-            # Filtro de Data
-            datas_disponiveis = df_notas['Data'].dropna().unique().tolist()
-            data_selecionada = st.multiselect("Filtrar por Data das Notas", datas_disponiveis, default=datas_disponiveis)
-            df_notas_filtrado = df_notas[df_notas['Data'].isin(data_selecionada)]
+            # Prepara as notas agrupadas por Data e Valor Total
+            if tem_notas:
+                notas_agrupadas = df_notas.groupby(['Data', 'Valor_Total_Nota'])
+            else:
+                notas_agrupadas = []
+
+            # 1. Varre o Mobilis linha por linha
+            for idx, row in df_mobilis.iterrows():
+                data_mob = row['Data_str']
+                val_mob = row['Valor_Num']
+                match_encontrado = False
+                
+                if pd.notna(data_mob) and pd.notna(val_mob) and tem_notas:
+                    # Procura uma nota fiscal que bata com a Data e o Valor (com tolerância de 50 centavos para arredondamentos)
+                    for (g_date, g_val), group in notas_agrupadas:
+                        if g_date == data_mob and abs(g_val - val_mob) < 0.50:
+                            if (g_date, g_val) not in notas_usadas:
+                                # ACHOU! Em vez de adicionar a linha do Mobilis, adiciona os itens detalhados
+                                for _, item_row in group.iterrows():
+                                    master_records.append({
+                                        'Data': g_date,
+                                        'Descrição': item_row['Item'],
+                                        'Categoria': item_row['Categoria'],
+                                        'Valor': item_row['Valor_Item'],
+                                        'Origem': 'Detalhado (Nota)'
+                                    })
+                                notas_usadas.add((g_date, g_val))
+                                match_encontrado = True
+                                break
+                
+                # Se não achou nota fiscal para essa despesa, mantém o dado original do Mobilis
+                if not match_encontrado:
+                    master_records.append({
+                        'Data': data_mob,
+                        'Descrição': row[col_desc],
+                        'Categoria': row[col_cat],
+                        'Valor': val_mob,
+                        'Origem': 'Mobilis (Macro)'
+                    })
             
-            if not df_notas_filtrado.empty:
+            # 2. Adiciona as notas que foram lidas mas que por algum motivo não estavam no Mobilis ainda
+            if tem_notas:
+                for (g_date, g_val), group in notas_agrupadas:
+                    if (g_date, g_val) not in notas_usadas:
+                        for _, item_row in group.iterrows():
+                            master_records.append({
+                                'Data': g_date,
+                                'Descrição': item_row['Item'],
+                                'Categoria': item_row['Categoria'],
+                                'Valor': item_row['Valor_Item'],
+                                'Origem': 'Nota (Não encontrada no banco)'
+                            })
+            
+            # Cria a Tabela Mestra Final
+            df_master = pd.DataFrame(master_records)
+            
+            st.success(f"Cruzamento concluído! {len(notas_usadas)} notas fiscais foram mescladas com sucesso aos dados do Mobilis.")
+            
+            # Filtro por Período
+            datas_unicas = df_master['Data'].dropna().unique().tolist()
+            datas_selecionadas = st.multiselect("Filtrar por Data", datas_unicas, default=datas_unicas)
+            df_master_filtrado = df_master[df_master['Data'].isin(datas_selecionadas)]
+            
+            if not df_master_filtrado.empty:
                 st.write("---")
+                # GRÁFICO DE BARRAS DE TODAS AS DESPESAS
+                st.subheader("Todas as Despesas por Categoria")
                 
-                # GRÁFICO ÚNICO: Barras Limpas
-                st.subheader("Gastos Totais por Categoria")
-                
-                # Agrupa os valores por categoria e soma
-                df_cat = df_notas_filtrado.groupby('Categoria')['Valor_Item'].sum().reset_index()
-                # Ordena para a maior barra ficar no topo do gráfico
-                df_cat = df_cat.sort_values(by='Valor_Item', ascending=True)
+                df_cat = df_master_filtrado.groupby('Categoria')['Valor'].sum().reset_index()
+                df_cat = df_cat.sort_values(by='Valor', ascending=True)
                 
                 fig_bar = px.bar(
                     df_cat, 
-                    x='Valor_Item', 
+                    x='Valor', 
                     y='Categoria', 
                     orientation='h', 
-                    text_auto='R$ %.2f', # Formata com símbolo de Reais
+                    text_auto='R$ %.2f',
                     color='Categoria'
                 )
-                fig_bar.update_layout(
-                    height=500, 
-                    showlegend=False,
-                    xaxis_title="Valor Gasto (R$)",
-                    yaxis_title=""
-                )
+                fig_bar.update_layout(height=600, showlegend=False, xaxis_title="Valor Gasto (R$)", yaxis_title="")
                 st.plotly_chart(fig_bar, use_container_width=True)
                 
                 st.write("---")
-                st.subheader("Tabela de Itens (Detalhamento)")
-                st.dataframe(df_notas_filtrado, use_container_width=True)
-            else:
-                st.info("Selecione pelo menos uma data para ver o gráfico.")
+                st.subheader("Extrato Consolidado (Mobilis + Itens)")
+                st.dataframe(df_master_filtrado, use_container_width=True)
                 
-        # CRUZAMENTO (Se tiver Mobilis e Notas)
-        if tem_notas and tem_mobilis:
-            st.write("---")
-            st.subheader("🔍 Cruzamento: Notas vs Extrato (Mobilis)")
-            
-            coluna_valor_mobilis = [c for c in df_mobilis.columns if 'valor' in c.lower() or 'amount' in c.lower() or 'saída' in c.lower()]
-            
-            if coluna_valor_mobilis:
-                col_val = coluna_valor_mobilis[0]
-                df_mobilis['Valor_Banco_Positivo'] = pd.to_numeric(df_mobilis[col_val], errors='coerce').abs()
-                
-                st.write(f"Comparando os Valores Totais das Notas com a coluna '{col_val}' do extrato bancário.")
-                st.dataframe(df_mobilis[['Data', col_val, 'Valor_Banco_Positivo']].head())
-            else:
-                st.info("Não consegui encontrar automaticamente a coluna de 'Valor' na sua planilha.")
-                
-        if not tem_notas and not tem_mobilis:
-            st.info("Ainda não existem dados salvos no banco. Envie uma foto de nota ou a planilha para começar.")
+        else:
+            st.info("Faça o upload da planilha do Mobilis na Aba 3 para gerar o painel consolidado.")
