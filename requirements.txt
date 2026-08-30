@@ -1,4 +1,6 @@
 streamlit
-supabase
+google-generativeai
 pandas
-plotly
+sqlalchemy
+xlsxwriter
+Pillow
