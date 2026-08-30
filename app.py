@@ -43,6 +43,7 @@ if imagem_selecionada:
             image = Image.open(imagem_selecionada)
             model = genai.GenerativeModel('gemini-3.6-flash')
             
+            # PROMPT ATUALIZADO: Usando as categorias que você pediu
             prompt = """
             Analise esta imagem (recibo ou nota fiscal).
             Extraia CADA ITEM listado na nota e também o VALOR TOTAL pago na nota.
@@ -51,12 +52,12 @@ if imagem_selecionada:
             1. "Data": Data da compra (DD/MM/AAAA).
             2. "Item": Nome do produto.
             3. "Valor_Item": Preço daquele item (só número, ex: 15.50).
-            4. "Categoria": Categoria lógica (Alimentação, Limpeza, etc).
+            4. "Categoria": Categoria lógica do item. Use categorias específicas como: Açougue, Bebidas, Padaria, Farmácia, Impostos, Seguro, Utilidades Domésticas, Higiene, Limpeza, Hortifruti, etc.
             5. "Valor_Total_Nota": O valor total final da nota inteira.
             
             Retorne EXCLUSIVAMENTE um formato JSON válido (uma lista de dicionários).
             Exemplo:
-            [{"Data": "30/08/2026", "Item": "Arroz", "Valor_Item": "25.90", "Categoria": "Alimentação", "Valor_Total_Nota": "157.00"}]
+            [{"Data": "30/08/2026", "Item": "Contra Filé", "Valor_Item": "45.90", "Categoria": "Açougue", "Valor_Total_Nota": "157.00"}]
             """
             response = model.generate_content([prompt, image])
             texto_limpo = response.text.strip().removeprefix("```json").removesuffix("```").strip()
@@ -127,39 +128,36 @@ with aba4:
             
             if not df_notas_filtrado.empty:
                 st.write("---")
-                # GRÁFICO 1: Barras (Fácil leitura)
-                st.subheader("Resumo por Categoria")
+                
+                # GRÁFICO ÚNICO: Barras Limpas
+                st.subheader("Gastos Totais por Categoria")
+                
+                # Agrupa os valores por categoria e soma
                 df_cat = df_notas_filtrado.groupby('Categoria')['Valor_Item'].sum().reset_index()
+                # Ordena para a maior barra ficar no topo do gráfico
                 df_cat = df_cat.sort_values(by='Valor_Item', ascending=True)
+                
                 fig_bar = px.bar(
                     df_cat, 
                     x='Valor_Item', 
                     y='Categoria', 
                     orientation='h', 
-                    text_auto='$.2f',
+                    text_auto='R$ %.2f', # Formata com símbolo de Reais
                     color='Categoria'
                 )
-                fig_bar.update_layout(height=400, showlegend=False)
-                st.plotly_chart(fig_bar, use_container_width=True)
-
-                st.write("---")
-                # GRÁFICO 2: Sunburst (Tamanho gigante para caber os itens)
-                st.subheader("Detalhamento por Item")
-                fig_sun = px.sunburst(
-                    df_notas_filtrado, 
-                    path=['Categoria', 'Item'], 
-                    values='Valor_Item'
+                fig_bar.update_layout(
+                    height=500, 
+                    showlegend=False,
+                    xaxis_title="Valor Gasto (R$)",
+                    yaxis_title=""
                 )
-                # Força o gráfico a ter 700 pixels de altura e tirar as margens
-                fig_sun.update_layout(height=700, margin=dict(t=10, l=0, r=0, b=10))
-                fig_sun.update_traces(textinfo="label+value")
-                st.plotly_chart(fig_sun, use_container_width=True)
+                st.plotly_chart(fig_bar, use_container_width=True)
                 
                 st.write("---")
-                st.subheader("Tabela de Itens")
+                st.subheader("Tabela de Itens (Detalhamento)")
                 st.dataframe(df_notas_filtrado, use_container_width=True)
             else:
-                st.info("Selecione pelo menos uma data para ver os gráficos.")
+                st.info("Selecione pelo menos uma data para ver o gráfico.")
                 
         # CRUZAMENTO (Se tiver Mobilis e Notas)
         if tem_notas and tem_mobilis:
