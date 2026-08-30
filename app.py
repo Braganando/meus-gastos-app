@@ -21,30 +21,48 @@ def get_engine():
         return create_engine(st.secrets["SUPABASE_URL"])
     return None
 
-# Criação das 4 abas
 aba1, aba2, aba3, aba4 = st.tabs(["📸 Tirar Foto", "📁 Foto da Galeria", "📊 Subir Planilha (Mobilis)", "📈 Dashboard Consolidado"])
 
 imagem_selecionada = None
 
-# Lista oficial de categorias permitidas
+# A SUA LISTA OFICIAL E IMUTÁVEL
 CATEGORIAS_VALIDAS = [
-    "Educação",
-    "Farmácia",
-    "Açougue",
-    "Bebidas",
-    "Carro",
-    "Transporte",
-    "Roupas",
-    "Estética",
-    "Produtos de Higiene",
-    "Produtos de Limpeza",
-    "Assinaturas",
-    "Taxas, Impostos e Tarifas Bancárias",
-    "Celular",
-    "Internet",
-    "Saúde",
-    "Superfluos de Mercado"
+    "Educação", "Farmácia", "Açougue", "Bebidas", "Carro", "Transporte", 
+    "Roupas", "Estética", "Produtos de Higiene", "Produtos de Limpeza", 
+    "Assinaturas", "Taxas, Impostos e Tarifas Bancárias", "Celular", 
+    "Internet", "Saúde", "Superfluos de Mercado"
 ]
+
+# O CÉREBRO TRADUTOR DO MOBILIS (Força o banco a usar as suas categorias)
+def mapear_categoria_mobilis(descricao, categoria_antiga):
+    texto = f"{descricao} {categoria_antiga}".lower()
+    
+    regras = {
+        "Educação": ['educa', 'escola', 'faculdade', 'curso', 'univesp', 'cpet', 'ibm', 'treinamento', 'mensalidade', 'aula'],
+        "Farmácia": ['farmacia', 'farmácia', 'droga', 'pague menos', 'raia', 'drogasil', 'ultrafarma', 'remedio', 'remédio'],
+        "Açougue": ['acougue', 'açougue', 'carne', 'swift', 'todero', 'boi', 'frango', 'suino', 'peixaria'],
+        "Bebidas": ['bebida', 'adega', 'ze delivery', 'cerveja', 'vinho', 'chopp', 'refrigerante', 'suco', 'licor'],
+        "Carro": ['posto', 'combustivel', 'combustível', 'gasolina', 'etanol', 'mecanica', 'oficina', 'pneu', 'estacionamento', 'ipiranga', 'shell', 'petrobras', 'sem parar', 'veloe', 'pedagio', 'pedágio', 'carro', 'automovel'],
+        "Transporte": ['uber', '99', 'blablacar', 'viagem', 'passagem', 'azul', 'gol', 'latam', 'buser', 'onibus', 'ônibus', 'metro', 'metrô', 'taxi', 'táxi', 'transporte', 'mobilidade'],
+        "Roupas": ['roupa', 'vestuario', 'vestuário', 'camisa', 'calca', 'sapato', 'tenis', 'tênis', 'renner', 'c&a', 'zara', 'riachuelo', 'centauro', 'moda', 'vestido'],
+        "Estética": ['estetica', 'estética', 'salao', 'salão', 'cabeleireiro', 'unha', 'beleza', 'manicure', 'barbearia', 'corte', 'cera', 'depilacao', 'sobrancelha'],
+        "Produtos de Higiene": ['higiene', 'sabonete', 'shampoo', 'desodorante', 'boticario', 'natura', 'perfume', 'cosmetico', 'creme dental'],
+        "Produtos de Limpeza": ['limpeza', 'sabao', 'sabão', 'detergente', 'amaciante', 'desinfetante', 'pano', 'vassoura'],
+        "Assinaturas": ['assinatura', 'netflix', 'spotify', 'amazon', 'prime', 'hbo', 'disney', 'globo', 'apple', 'icloud', 'youtube', 'streaming', 'software', 'google'],
+        "Taxas, Impostos e Tarifas Bancárias": ['taxa', 'tarifa', 'iof', 'imposto', 'iptu', 'ipva', 'darf', 'simples', 'juros', 'multa', 'anuidade', 'ted', 'doc', 'tributo', 'das', 'gps', 'banco', 'manutencao', 'mensalidade conta'],
+        "Celular": ['celular', 'vivo', 'claro', 'tim', 'oi', 'recarga', 'telefone', 'conta de celular', 'plano celular'],
+        "Internet": ['internet', 'fibra', 'provedor', 'net ', 'banda larga', 'wifi', 'claro net', 'vivo fibra'],
+        "Saúde": ['saude', 'saúde', 'medico', 'médico', 'dentista', 'clinica', 'clínica', 'hospital', 'seguro de vida', 'porto seguro', 'unimed', 'sulamerica', 'bradesco saude', 'exame', 'laboratorio', 'terapia', 'psicologo'],
+        "Superfluos de Mercado": ['doce', 'salgado', 'biscoito', 'bolacha', 'chocolate', 'sorvete', 'cacau show', 'lanche', 'padaria', 'ifood', 'mcdonalds', 'burger king', 'bk', 'pizza', 'restaurante', 'sobremesa', 'guloseima', 'snack']
+    }
+
+    # Procura as palavras chaves no texto do banco
+    for cat_oficial, palavras in regras.items():
+        if any(palavra in texto for palavra in palavras):
+            return cat_oficial
+            
+    # Se não achou em nenhuma regra, aí sim vai pra Outros
+    return "Outros"
 
 # ---------------- ABA 1 e 2: GEMINI ----------------
 with aba1:
@@ -71,8 +89,8 @@ if imagem_selecionada:
             Para cada item, crie um dicionário com:
             1. "Data": Data da compra (DD/MM/AAAA).
             2. "Item": Nome do produto.
-            3. "Valor_Item": Preço daquele item (só número, ex: 15.50).
-            4. "Categoria": Você DEVIDAMENTE OBRIGADO a escolher uma e apenas uma categoria desta lista exata: {CATEGORIAS_VALIDAS}. Se o item não se encaixar em nenhuma delas, classifique estritamente como "Outros".
+            3. "Valor_Item": Preço (só número, ex: 15.50).
+            4. "Categoria": É OBRIGATÓRIO escolher UMA E APENAS UMA categoria desta lista EXATA: {CATEGORIAS_VALIDAS}.
             5. "Valor_Total_Nota": O valor total final da nota inteira.
             
             Retorne EXCLUSIVAMENTE um formato JSON válido (lista de dicionários).
@@ -182,10 +200,13 @@ with aba4:
                             if abs((g_date - data_mob).days) <= 3 and abs(g_val - val_mob) <= 2.00:
                                 if (g_date, g_val) not in notas_usadas:
                                     for _, item_row in group.iterrows():
+                                        cat_item = str(item_row['Categoria']).title()
+                                        if cat_item not in CATEGORIAS_VALIDAS: cat_item = "Outros"
+                                        
                                         master_records.append({
                                             'Data_Obj': data_mob,
                                             'Descrição': str(item_row['Item']).title(),
-                                            'Categoria': str(item_row['Categoria']).title(),
+                                            'Categoria': cat_item,
                                             'Valor': item_row['Valor_Item']
                                         })
                                     notas_usadas.add((g_date, g_val))
@@ -193,14 +214,16 @@ with aba4:
                                     break
                 
                 if not match_encontrado:
-                    # Tenta mapear a categoria do Mobilis para a lista oficial, se não achar vira Outros
-                    cat_banco = str(row[col_cat]).strip().title()
-                    cat_final = cat_banco if cat_banco in CATEGORIAS_VALIDAS else "Outros"
+                    desc_banco = str(row[col_desc]).title()
+                    cat_banco = str(row[col_cat]).title()
+                    
+                    # CHAMA O CÉREBRO PARA TRADUZIR A CATEGORIA
+                    cat_traduzida = mapear_categoria_mobilis(desc_banco, cat_banco)
                     
                     master_records.append({
                         'Data_Obj': data_mob,
-                        'Descrição': str(row[col_desc]).title(),
-                        'Categoria': cat_final,
+                        'Descrição': desc_banco,
+                        'Categoria': cat_traduzida,
                         'Valor': val_mob
                     })
             
@@ -249,20 +272,6 @@ with aba4:
                 altura = max(400, len(df_cat) * 35)
                 fig_bar.update_layout(height=altura, showlegend=False, xaxis_title="Valor Gasto (R$)", yaxis_title="")
                 st.plotly_chart(fig_bar, use_container_width=True)
-                
-                # --- AUDITORIA DE "OUTROS" ---
-                st.write("---")
-                st.subheader("🔍 Auditoria da Categoria 'Outros'")
-                df_outros = df_master_filtrado[df_master_filtrado['Categoria'] == 'Outros']
-                if not df_outros.empty:
-                    st.write("Estes lançamentos caíram em 'Outros' porque não estavam na lista oficial. Veja se deseja criar uma nova categoria para eles:")
-                    df_outros_display = df_outros.copy()
-                    df_outros_display['Data'] = df_outros_display['Data_Obj'].dt.strftime('%d/%m/%Y')
-                    df_outros_display = df_outros_display[['Data', 'Descrição', 'Valor']]
-                    df_outros_display['Valor'] = df_outros_display['Valor'].apply(lambda x: f"R$ {x:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
-                    st.dataframe(df_outros_display, use_container_width=True)
-                else:
-                    st.success("Perfeito! Não há nenhum gasto perdido na categoria 'Outros' no período selecionado.")
                 
                 st.write("---")
                 st.subheader("Extrato Consolidado")
