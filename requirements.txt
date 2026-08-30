@@ -4,3 +4,7 @@ pandas
 sqlalchemy
 xlsxwriter
 Pillow
+psycopg2-binary
+plotly
+openpyxl
+xlrd
