@@ -36,7 +36,9 @@ if imagem_selecionada:
             genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
             
             image = Image.open(imagem_selecionada)
-            model = genai.GenerativeModel('gemini-1.5-flash')
+            
+            # CORREÇÃO: Usando a versão '-latest' que evita o erro 404
+            model = genai.GenerativeModel('gemini-1.5-flash-latest')
             
             # O comando (prompt) que enviamos para o Gemini
             prompt = """
