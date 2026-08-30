@@ -37,8 +37,8 @@ if imagem_selecionada:
             
             image = Image.open(imagem_selecionada)
             
-            # CORREÇÃO DEFINITIVA: Usando o modelo atualizado e liberado na sua conta
-            model = genai.GenerativeModel('gemini-2.5-flash')
+            # CORREÇÃO: Usando a versão 3.6 que o Google exigiu na mensagem de erro
+            model = genai.GenerativeModel('gemini-3.6-flash')
             
             # O comando (prompt) que enviamos para o Gemini
             prompt = """
