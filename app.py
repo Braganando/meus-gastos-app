@@ -12,9 +12,8 @@ import plotly.express as px
 st.set_page_config(page_title="Meus Gastos", page_icon="📸", layout="wide")
 
 st.title("📸 Leitor de Notas e Dashboard Financeiro")
-st.write("Controle financeiro categorizado por grupos específicos.")
+st.write("Controle financeiro categorizado por grupos específicos e refinados.")
 
-# Função segura para conectar ao banco
 @st.cache_resource
 def get_engine():
     if "SUPABASE_URL" in st.secrets:
@@ -25,43 +24,73 @@ aba1, aba2, aba3, aba4 = st.tabs(["📸 Tirar Foto", "📁 Foto da Galeria", "�
 
 imagem_selecionada = None
 
-# A SUA LISTA OFICIAL E IMUTÁVEL
+# A NOVA LISTA OFICIAL E IMUTÁVEL DE CATEGORIAS
 CATEGORIAS_VALIDAS = [
-    "Educação", "Farmácia", "Açougue", "Bebidas", "Carro", "Transporte", 
-    "Roupas", "Estética", "Produtos de Higiene", "Produtos de Limpeza", 
-    "Assinaturas", "Taxas, Impostos e Tarifas Bancárias", "Celular", 
-    "Internet", "Saúde", "Superfluos de Mercado"
+    "Açougue / Carnes",
+    "Hortifruti",
+    "Padaria e Confeitaria",
+    "Laticínios e Frios",
+    "Mercearia / Alimentos Básicos",
+    "Bebidas (Depósitos e Cervejarias)",
+    "Restaurantes e Delivery",
+    "Produtos de Limpeza",
+    "Produtos de Higiene Pessoal",
+    "Farmácia e Saúde",
+    "Pet Shop",
+    "Utilidades Domésticas",
+    "Papelaria",
+    "Vestuário / Calçados",
+    "E-commerce e Marketplaces",
+    "Casa, Móveis e Decoração",
+    "Eletrônicos e Informática",
+    "Beleza e Cosméticos",
+    "Combustível e Outros Gastos",
+    "Honda Fit",
+    "Transporte",
+    "Contas Fixas e Telecom",
+    "Assinaturas e Serviços Digitais",
+    "Seguros",
+    "Impostos, Taxas e Tarifas Bancárias",
+    "Educação"
 ]
 
-# O CÉREBRO TRADUTOR DO MOBILIS (Força o banco a usar as suas categorias)
+# O CÉREBRO TRADUTOR DO MOBILIS E CARTÕES
 def mapear_categoria_mobilis(descricao, categoria_antiga):
     texto = f"{descricao} {categoria_antiga}".lower()
     
     regras = {
-        "Educação": ['educa', 'escola', 'faculdade', 'curso', 'univesp', 'cpet', 'ibm', 'treinamento', 'mensalidade', 'aula'],
-        "Farmácia": ['farmacia', 'farmácia', 'droga', 'pague menos', 'raia', 'drogasil', 'ultrafarma', 'remedio', 'remédio'],
-        "Açougue": ['acougue', 'açougue', 'carne', 'swift', 'todero', 'boi', 'frango', 'suino', 'peixaria'],
-        "Bebidas": ['bebida', 'adega', 'ze delivery', 'cerveja', 'vinho', 'chopp', 'refrigerante', 'suco', 'licor'],
-        "Carro": ['posto', 'combustivel', 'combustível', 'gasolina', 'etanol', 'mecanica', 'oficina', 'pneu', 'estacionamento', 'ipiranga', 'shell', 'petrobras', 'sem parar', 'veloe', 'pedagio', 'pedágio', 'carro', 'automovel'],
-        "Transporte": ['uber', '99', 'blablacar', 'viagem', 'passagem', 'azul', 'gol', 'latam', 'buser', 'onibus', 'ônibus', 'metro', 'metrô', 'taxi', 'táxi', 'transporte', 'mobilidade'],
-        "Roupas": ['roupa', 'vestuario', 'vestuário', 'camisa', 'calca', 'sapato', 'tenis', 'tênis', 'renner', 'c&a', 'zara', 'riachuelo', 'centauro', 'moda', 'vestido'],
-        "Estética": ['estetica', 'estética', 'salao', 'salão', 'cabeleireiro', 'unha', 'beleza', 'manicure', 'barbearia', 'corte', 'cera', 'depilacao', 'sobrancelha'],
-        "Produtos de Higiene": ['higiene', 'sabonete', 'shampoo', 'desodorante', 'boticario', 'natura', 'perfume', 'cosmetico', 'creme dental'],
-        "Produtos de Limpeza": ['limpeza', 'sabao', 'sabão', 'detergente', 'amaciante', 'desinfetante', 'pano', 'vassoura'],
-        "Assinaturas": ['assinatura', 'netflix', 'spotify', 'amazon', 'prime', 'hbo', 'disney', 'globo', 'apple', 'icloud', 'youtube', 'streaming', 'software', 'google'],
-        "Taxas, Impostos e Tarifas Bancárias": ['taxa', 'tarifa', 'iof', 'imposto', 'iptu', 'ipva', 'darf', 'simples', 'juros', 'multa', 'anuidade', 'ted', 'doc', 'tributo', 'das', 'gps', 'banco', 'manutencao', 'mensalidade conta'],
-        "Celular": ['celular', 'vivo', 'claro', 'tim', 'oi', 'recarga', 'telefone', 'conta de celular', 'plano celular'],
-        "Internet": ['internet', 'fibra', 'provedor', 'net ', 'banda larga', 'wifi', 'claro net', 'vivo fibra'],
-        "Saúde": ['saude', 'saúde', 'medico', 'médico', 'dentista', 'clinica', 'clínica', 'hospital', 'seguro de vida', 'porto seguro', 'unimed', 'sulamerica', 'bradesco saude', 'exame', 'laboratorio', 'terapia', 'psicologo'],
-        "Superfluos de Mercado": ['doce', 'salgado', 'biscoito', 'bolacha', 'chocolate', 'sorvete', 'cacau show', 'lanche', 'padaria', 'ifood', 'mcdonalds', 'burger king', 'bk', 'pizza', 'restaurante', 'sobremesa', 'guloseima', 'snack']
+        "Açougue / Carnes": ['acougue', 'açougue', 'carne', 'todero', 'daliza', 'sinha', 'swift', 'frango', 'peixaria', 'suino', 'bovino'],
+        "Hortifruti": ['hortifruti', 'quitanda', 'sacolao', 'fruta', 'verdura', 'legume', 'quitandalopes'],
+        "Padaria e Confeitaria": ['padaria', 'panificadora', 'pao', 'bolo', 'amara', 'malaquias', 'doce', 'confeitaria', 'don raffaelo'],
+        "Laticínios e Frios": ['laticinio', 'frios', 'queijo', 'presunto', 'mussarela', 'leite'],
+        "Mercearia / Alimentos Básicos": ['mercearia', 'arroz', 'feijao', 'macarrao', 'oleo', 'acucar', 'cafe'],
+        "Bebidas (Depósitos e Cervejarias)": ['bebida', 'adega', 'ze delivery', 'cerveja', 'vinho', 'depositomarcondes', 'deposito de bebidas', 'cervejaria sp'],
+        "Restaurantes e Delivery": ['restaurante', 'ifood', 'ifd*', 'mcdonalds', 'burger king', 'pizza', 'lanche', 'domlanchonete', 'jakaburger', 'sorveteria', 'panela velha', 'kasasushi', 'spasso sabores', 'fino sabor', 'ciadosalgados', 'sao cristov', 'guloseima', 'snack'],
+        "Produtos de Limpeza": ['limpeza', 'sabao', 'detergente', 'desinfetante', 'amaciante', 'vassoura', 'lava louca'],
+        "Produtos de Higiene Pessoal": ['higiene', 'sabonete', 'shampoo', 'creme dental', 'desodorante'],
+        "Farmácia e Saúde": ['farmacia', 'droga', 'pague menos', 'raia', 'drogasil', 'rdsaude', 'montouro', 'farmasite', 'drogalsaojoao', 'medico', 'dentista', 'clinica', 'hospital', 'exame', 'laboratorio', 'otica visao', 'fisioterapia', 'odontologia', 'clara borato', 'isabel cristina', 'htm*r kos', 'unimed', 'remedio', 'remédio'],
+        "Pet Shop": ['pet', 'racao', 'veterinario', 'latidos e miados'],
+        "Utilidades Domésticas": ['utilidade', 'casa', 'panela', 'pote', 'embalagem', 'flavio embalagens'],
+        "Papelaria": ['papelaria', 'caderno', 'lapis', 'caneta', 'sulfite', 'akiten'],
+        "Vestuário / Calçados": ['roupa', 'vestuario', 'camisa', 'calca', 'sapato', 'tenis', 'renner', 'c&a', 'zara', 'riachuelo', 'sapataria wilson', 'lojas karze', 'cada passinho'],
+        "E-commerce e Marketplaces": ['mercado livre', 'mercadolivre', 'shopee', 'shpp', 'magalu', 'aliexpress', 'amazonmktplc', 'lojas americanas'],
+        "Casa, Móveis e Decoração": ['moveis', 'decoracao', 'shop lar', 'ideal home'],
+        "Eletrônicos e Informática": ['eletronico', 'informatica', 'computador', 'celular aparelho'],
+        "Beleza e Cosméticos": ['beleza', 'cosmetico', 'perfume', 'boticario', 'natura', 'salao', 'cabeleireiro', 'manicure', 'estetica', 'depilacao'],
+        "Combustível e Outros Gastos": ['posto', 'gasolina', 'etanol', 'combustivel', 'ipiranga', 'shell', 'petrobras', 'baesso', '14 de julho', 'posto sao joao', 'auto posto', 'pedagio', 'sem parar', 'veloe', 'renovias', 'estacionamento', 'zona azul', 'zul 10', 'zul 2', 'zul', 'pedagio', 'pedágio'],
+        "Honda Fit": ['oficina', 'mecanico', 'mecanica', 'autopecas', 'autopeças', 'cidoautopecas', 'ipva', 'licenciamento', 'seguro auto'],
+        "Transporte": ['uber', '99', 'blablacar', 'passagem', 'onibus', 'viagem', 'azul', 'gol', 'latam', 'buser', 'taxi', 'transporte', 'mobilidade'],
+        "Contas Fixas e Telecom": ['celular', 'vivo', 'claro', 'tim', 'oi', 'internet', 'fibra', 'alares', 'corujatelecomunic', 'claro movel', 'telefone', 'conta de celular', 'plano celular'],
+        "Assinaturas e Serviços Digitais": ['netflix', 'spotify', 'amazon prime', 'prime canais', 'hbo', 'disney', 'apple', 'google workspace', 'software', 'assinatura', 'streaming', 'apple com/bill'],
+        "Seguros": ['seguro', 'allianz', 'porto seguro', 'sulamerica', 'seguradora'],
+        "Impostos, Taxas e Tarifas Bancárias": ['taxa', 'tarifa', 'iof', 'imposto', 'iptu', 'darf', 'simples', 'juros', 'multa', 'anuidade', 'ted', 'doc', 'tributo', 'das', 'gps', 'manutencao', 'zoop', 'cheque esp', 'banco'],
+        "Educação": ['educacao', 'escola', 'faculdade', 'curso', 'univesp', 'cpet', 'ibm', 'getulio vargas', 'gran educacao', 'mensalidade', 'treinamento']
     }
 
-    # Procura as palavras chaves no texto do banco
     for cat_oficial, palavras in regras.items():
         if any(palavra in texto for palavra in palavras):
             return cat_oficial
             
-    # Se não achou em nenhuma regra, aí sim vai pra Outros
     return "Outros"
 
 # ---------------- ABA 1 e 2: GEMINI ----------------
@@ -90,7 +119,7 @@ if imagem_selecionada:
             1. "Data": Data da compra (DD/MM/AAAA).
             2. "Item": Nome do produto.
             3. "Valor_Item": Preço (só número, ex: 15.50).
-            4. "Categoria": É OBRIGATÓRIO escolher UMA E APENAS UMA categoria desta lista EXATA: {CATEGORIAS_VALIDAS}.
+            4. "Categoria": É OBRIGATÓRIO escolher UMA E APENAS UMA categoria desta lista EXATA: {CATEGORIAS_VALIDAS}. Se o item não for de nenhuma dessas, classifique como "Outros".
             5. "Valor_Total_Nota": O valor total final da nota inteira.
             
             Retorne EXCLUSIVAMENTE um formato JSON válido (lista de dicionários).
@@ -200,7 +229,7 @@ with aba4:
                             if abs((g_date - data_mob).days) <= 3 and abs(g_val - val_mob) <= 2.00:
                                 if (g_date, g_val) not in notas_usadas:
                                     for _, item_row in group.iterrows():
-                                        cat_item = str(item_row['Categoria']).title()
+                                        cat_item = str(item_row['Categoria']).strip()
                                         if cat_item not in CATEGORIAS_VALIDAS: cat_item = "Outros"
                                         
                                         master_records.append({
@@ -217,7 +246,6 @@ with aba4:
                     desc_banco = str(row[col_desc]).title()
                     cat_banco = str(row[col_cat]).title()
                     
-                    # CHAMA O CÉREBRO PARA TRADUZIR A CATEGORIA
                     cat_traduzida = mapear_categoria_mobilis(desc_banco, cat_banco)
                     
                     master_records.append({
@@ -230,7 +258,6 @@ with aba4:
             df_master = pd.DataFrame(master_records)
             df_master = df_master.dropna(subset=['Data_Obj'])
             
-            # --- FILTRO DE CALENDÁRIO ---
             min_date = df_master['Data_Obj'].min().date()
             max_date = df_master['Data_Obj'].max().date()
             
@@ -272,6 +299,19 @@ with aba4:
                 altura = max(400, len(df_cat) * 35)
                 fig_bar.update_layout(height=altura, showlegend=False, xaxis_title="Valor Gasto (R$)", yaxis_title="")
                 st.plotly_chart(fig_bar, use_container_width=True)
+                
+                st.write("---")
+                st.subheader("🔍 Auditoria da Categoria 'Outros'")
+                df_outros = df_master_filtrado[df_master_filtrado['Categoria'] == 'Outros']
+                if not df_outros.empty:
+                    st.write("Veja se deseja criar uma nova regra para estas despesas que caíram em 'Outros':")
+                    df_outros_display = df_outros.copy()
+                    df_outros_display['Data'] = df_outros_display['Data_Obj'].dt.strftime('%d/%m/%Y')
+                    df_outros_display = df_outros_display[['Data', 'Descrição', 'Valor']]
+                    df_outros_display['Valor'] = df_outros_display['Valor'].apply(lambda x: f"R$ {x:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
+                    st.dataframe(df_outros_display, use_container_width=True)
+                else:
+                    st.success("Perfeito! Não há nenhum gasto perdido na categoria 'Outros'.")
                 
                 st.write("---")
                 st.subheader("Extrato Consolidado")
