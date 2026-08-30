@@ -12,7 +12,7 @@ import plotly.express as px
 st.set_page_config(page_title="Meus Gastos", page_icon="📸", layout="wide")
 
 st.title("📸 Leitor de Notas e Dashboard Financeiro")
-st.write("A base é o seu banco (Mobilis). As notas detalham as compras!")
+st.write("Controle financeiro categorizado por grupos específicos.")
 
 # Função segura para conectar ao banco
 @st.cache_resource
@@ -25,6 +25,26 @@ def get_engine():
 aba1, aba2, aba3, aba4 = st.tabs(["📸 Tirar Foto", "📁 Foto da Galeria", "📊 Subir Planilha (Mobilis)", "📈 Dashboard Consolidado"])
 
 imagem_selecionada = None
+
+# Lista oficial de categorias permitidas
+CATEGORIAS_VALIDAS = [
+    "Educação",
+    "Farmácia",
+    "Açougue",
+    "Bebidas",
+    "Carro",
+    "Transporte",
+    "Roupas",
+    "Estética",
+    "Produtos de Higiene",
+    "Produtos de Limpeza",
+    "Assinaturas",
+    "Taxas, Impostos e Tarifas Bancárias",
+    "Celular",
+    "Internet",
+    "Saúde",
+    "Superfluos de Mercado"
+]
 
 # ---------------- ABA 1 e 2: GEMINI ----------------
 with aba1:
@@ -44,8 +64,7 @@ if imagem_selecionada:
             image = Image.open(imagem_selecionada)
             model = genai.GenerativeModel('gemini-3.6-flash')
             
-            # PROMPT CEGO PARA ERROS: Proibido usar palavras genéricas
-            prompt = """
+            prompt = f"""
             Analise esta imagem (recibo ou nota fiscal).
             Extraia CADA ITEM listado na nota e também o VALOR TOTAL pago na nota.
             
@@ -53,7 +72,7 @@ if imagem_selecionada:
             1. "Data": Data da compra (DD/MM/AAAA).
             2. "Item": Nome do produto.
             3. "Valor_Item": Preço daquele item (só número, ex: 15.50).
-            4. "Categoria": Categoria lógica do item. REGRA ABSOLUTA: É PROIBIDO usar as palavras 'Alimentação', 'Supermercado', 'Compras', 'Geral' ou 'Mercado'. Você DEVE classificar o item em grupos específicos. Exemplos permitidos: Açougue, Padaria, Hortifruti, Limpeza, Higiene, Bebidas, Laticínios, Utilidades Domésticas, Mercearia, Pet.
+            4. "Categoria": Você DEVIDAMENTE OBRIGADO a escolher uma e apenas uma categoria desta lista exata: {CATEGORIAS_VALIDAS}. Se o item não se encaixar em nenhuma delas, classifique estritamente como "Outros".
             5. "Valor_Total_Nota": O valor total final da nota inteira.
             
             Retorne EXCLUSIVAMENTE um formato JSON válido (lista de dicionários).
@@ -100,7 +119,7 @@ with aba3:
 
 # ---------------- ABA 4: DASHBOARD E CRUZAMENTO ----------------
 with aba4:
-    st.header("📈 Dashboard Consolidado (Mobilis + Notas)")
+    st.header("📈 Dashboard Consolidado")
     engine = get_engine()
     
     if engine:
@@ -126,7 +145,6 @@ with aba4:
                 
                 df_mobilis['Valor_Original'] = pd.to_numeric(df_mobilis[col_val], errors='coerce')
                 
-                # FILTRO 1: Apenas Despesas
                 if col_tipo:
                     df_mobilis = df_mobilis[df_mobilis[col_tipo[0]].astype(str).str.contains('despesa|saída', case=False, na=True)]
                 else:
@@ -134,7 +152,6 @@ with aba4:
                 
                 df_mobilis['Valor_Num'] = df_mobilis['Valor_Original'].abs()
                 
-                # FILTRO 2: Ignorar pagamento de fatura (já que os itens do cartão já entram separados)
                 termos_fatura = ['pagamento de cartão', 'pagamento de fatura', 'fatura do cartão', 'cartão de crédito']
                 mascara_fatura = df_mobilis[col_cat].astype(str).str.lower().str.contains('|'.join(termos_fatura), na=False) | \
                                  df_mobilis[col_desc].astype(str).str.lower().str.contains('pagamento de fatura|pagamento de cartão', na=False)
@@ -149,13 +166,11 @@ with aba4:
             master_records = []
             notas_usadas = set()
             
-            # Agrupa as notas cadastradas
             if tem_notas:
                 notas_agrupadas = df_notas.groupby(['Data_Obj', 'Valor_Total_Nota'])
             else:
                 notas_agrupadas = []
 
-            # Varre o Mobilis
             for idx, row in df_mobilis.iterrows():
                 data_mob = row['Data_Obj']
                 val_mob = row['Valor_Num']
@@ -164,13 +179,11 @@ with aba4:
                 if pd.notna(data_mob) and pd.notna(val_mob) and tem_notas:
                     for (g_date, g_val), group in notas_agrupadas:
                         if pd.notna(g_date) and pd.notna(g_val):
-                            # MAGIA DA TOLERÂNCIA: Aceita até 3 dias de diferença entre a nota e o banco e 2 reais de variação
                             if abs((g_date - data_mob).days) <= 3 and abs(g_val - val_mob) <= 2.00:
                                 if (g_date, g_val) not in notas_usadas:
-                                    # Explode a linha do Mobilis e insere os itens categorizados!
                                     for _, item_row in group.iterrows():
                                         master_records.append({
-                                            'Data_Obj': data_mob, # Mantém a data do banco para o filtro funcionar redondinho
+                                            'Data_Obj': data_mob,
                                             'Descrição': str(item_row['Item']).title(),
                                             'Categoria': str(item_row['Categoria']).title(),
                                             'Valor': item_row['Valor_Item']
@@ -179,29 +192,20 @@ with aba4:
                                     match_encontrado = True
                                     break
                 
-                # Se não tem nota fiscal associada, mantém o dado do banco
                 if not match_encontrado:
+                    # Tenta mapear a categoria do Mobilis para a lista oficial, se não achar vira Outros
+                    cat_banco = str(row[col_cat]).strip().title()
+                    cat_final = cat_banco if cat_banco in CATEGORIAS_VALIDAS else "Outros"
+                    
                     master_records.append({
                         'Data_Obj': data_mob,
                         'Descrição': str(row[col_desc]).title(),
-                        'Categoria': str(row[col_cat]).title(),
+                        'Categoria': cat_final,
                         'Valor': val_mob
                     })
             
             df_master = pd.DataFrame(master_records)
             df_master = df_master.dropna(subset=['Data_Obj'])
-            
-            # MAGIA DAS CATEGORIAS (DESTRINCHAR OUTROS E SERVIÇOS)
-            def limpar_categoria(row):
-                cat = str(row['Categoria']).strip()
-                desc = str(row['Descrição']).strip()
-                
-                # Se a categoria do banco for inútil (Outros, Serviços), substituímos pelo NOME de onde o dinheiro foi gasto
-                if cat.lower() in ['outros', 'serviços', 'servicos']:
-                    return desc
-                return cat
-            
-            df_master['Categoria'] = df_master.apply(limpar_categoria, axis=1)
             
             # --- FILTRO DE CALENDÁRIO ---
             min_date = df_master['Data_Obj'].min().date()
@@ -226,13 +230,11 @@ with aba4:
             
             if not df_master_filtrado.empty:
                 st.write("---")
-                st.subheader("Gastos Totais Agrupados (100% Específico)")
+                st.subheader("Gastos por Categoria Oficial")
                 
-                # Agrupa tudo independente de onde foi comprado!
                 df_cat = df_master_filtrado.groupby('Categoria')['Valor'].sum().reset_index()
                 df_cat = df_cat.sort_values(by='Valor', ascending=True)
                 
-                # Formatação de Moeda Brasil
                 df_cat['Valor_Moeda'] = df_cat['Valor'].apply(lambda x: f"R$ {x:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
                 
                 fig_bar = px.bar(
@@ -248,10 +250,22 @@ with aba4:
                 fig_bar.update_layout(height=altura, showlegend=False, xaxis_title="Valor Gasto (R$)", yaxis_title="")
                 st.plotly_chart(fig_bar, use_container_width=True)
                 
+                # --- AUDITORIA DE "OUTROS" ---
                 st.write("---")
-                st.subheader("Extrato Consolidado e Aberto")
+                st.subheader("🔍 Auditoria da Categoria 'Outros'")
+                df_outros = df_master_filtrado[df_master_filtrado['Categoria'] == 'Outros']
+                if not df_outros.empty:
+                    st.write("Estes lançamentos caíram em 'Outros' porque não estavam na lista oficial. Veja se deseja criar uma nova categoria para eles:")
+                    df_outros_display = df_outros.copy()
+                    df_outros_display['Data'] = df_outros_display['Data_Obj'].dt.strftime('%d/%m/%Y')
+                    df_outros_display = df_outros_display[['Data', 'Descrição', 'Valor']]
+                    df_outros_display['Valor'] = df_outros_display['Valor'].apply(lambda x: f"R$ {x:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
+                    st.dataframe(df_outros_display, use_container_width=True)
+                else:
+                    st.success("Perfeito! Não há nenhum gasto perdido na categoria 'Outros' no período selecionado.")
                 
-                # Tabela Bonita para exibição
+                st.write("---")
+                st.subheader("Extrato Consolidado")
                 df_display = df_master_filtrado.copy()
                 df_display['Data'] = df_display['Data_Obj'].dt.strftime('%d/%m/%Y')
                 df_display = df_display[['Data', 'Descrição', 'Categoria', 'Valor']]
