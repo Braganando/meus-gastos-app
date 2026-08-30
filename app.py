@@ -43,7 +43,6 @@ if imagem_selecionada:
             image = Image.open(imagem_selecionada)
             model = genai.GenerativeModel('gemini-3.6-flash')
             
-            # PROMPT ATUALIZADO: Pede o Valor Total da nota junto com os itens para o cruzamento
             prompt = """
             Analise esta imagem (recibo ou nota fiscal).
             Extraia CADA ITEM listado na nota e também o VALOR TOTAL pago na nota.
@@ -53,32 +52,27 @@ if imagem_selecionada:
             2. "Item": Nome do produto.
             3. "Valor_Item": Preço daquele item (só número, ex: 15.50).
             4. "Categoria": Categoria lógica (Alimentação, Limpeza, etc).
-            5. "Valor_Total_Nota": O valor total final da nota inteira (repita o mesmo valor total em todos os itens).
+            5. "Valor_Total_Nota": O valor total final da nota inteira.
             
             Retorne EXCLUSIVAMENTE um formato JSON válido (uma lista de dicionários).
             Exemplo:
-            [
-              {"Data": "30/08/2026", "Item": "Arroz", "Valor_Item": "25.90", "Categoria": "Alimentação", "Valor_Total_Nota": "157.00"}
-            ]
+            [{"Data": "30/08/2026", "Item": "Arroz", "Valor_Item": "25.90", "Categoria": "Alimentação", "Valor_Total_Nota": "157.00"}]
             """
             response = model.generate_content([prompt, image])
             texto_limpo = response.text.strip().removeprefix("```json").removesuffix("```").strip()
             
             df_itens = pd.DataFrame(json.loads(texto_limpo))
-            
-            # Converte valores para números
             df_itens['Valor_Item'] = pd.to_numeric(df_itens['Valor_Item'], errors='coerce')
             df_itens['Valor_Total_Nota'] = pd.to_numeric(df_itens['Valor_Total_Nota'], errors='coerce')
             
             st.success("Itens extraídos!")
             st.dataframe(df_itens)
             
-            # Salvar no Banco
             engine = get_engine()
             if engine:
                 if st.button("Salvar Itens no Banco de Dados"):
                     df_itens.to_sql('gastos_itens', engine, if_exists='append', index=False)
-                    st.success("Itens salvos no Supabase com sucesso!")
+                    st.success("Itens salvos no Supabase com sucesso! Vá para a aba Dashboard para ver os gráficos.")
             else:
                 st.warning("⚠️ Configure o Supabase para salvar os dados.")
                 
@@ -101,56 +95,87 @@ with aba3:
                 if st.button("Salvar Planilha no Banco de Dados"):
                     df_banco.to_sql('gastos_bancarios', engine, if_exists='append', index=False)
                     st.success("Planilha salva no Supabase com sucesso!")
-            else:
-                st.warning("⚠️ Configure o Supabase para salvar os dados.")
         except Exception as e:
             st.error(f"Erro ao ler planilha: {e}")
 
 # ---------------- ABA 4: DASHBOARD E CRUZAMENTO ----------------
 with aba4:
-    st.header("📈 Gráficos de Despesas (Cruzamento de Dados)")
+    st.header("📈 Gráficos de Despesas")
     engine = get_engine()
     
     if engine:
+        tem_notas = False
         try:
-            # Puxa os dados do banco
             df_notas = pd.read_sql_table('gastos_itens', engine)
+            tem_notas = True
+        except ValueError:
+            pass 
+            
+        tem_mobilis = False
+        try:
             df_mobilis = pd.read_sql_table('gastos_bancarios', engine)
+            tem_mobilis = True
+        except ValueError:
+            pass
+
+        if tem_notas and not df_notas.empty:
             
-            st.write("✅ Bancos de dados carregados. Preparando cruzamento...")
+            # Filtro de Data
+            datas_disponiveis = df_notas['Data'].dropna().unique().tolist()
+            data_selecionada = st.multiselect("Filtrar por Data das Notas", datas_disponiveis, default=datas_disponiveis)
+            df_notas_filtrado = df_notas[df_notas['Data'].isin(data_selecionada)]
             
-            # O código tentará achar a coluna de Valor no Mobilis (geralmente se chama "Valor", "Value" ou "Amount")
-            coluna_valor_mobilis = [c for c in df_mobilis.columns if 'valor' in c.lower()]
-            
-            if coluna_valor_mobilis and 'Valor_Total_Nota' in df_notas.columns:
-                col_val = coluna_valor_mobilis[0]
-                df_mobilis[col_val] = pd.to_numeric(df_mobilis[col_val], errors='coerce').abs() # abs() para evitar problemas com valores negativos
+            if not df_notas_filtrado.empty:
+                st.write("---")
+                # GRÁFICO 1: Barras (Fácil leitura)
+                st.subheader("Resumo por Categoria")
+                df_cat = df_notas_filtrado.groupby('Categoria')['Valor_Item'].sum().reset_index()
+                df_cat = df_cat.sort_values(by='Valor_Item', ascending=True)
+                fig_bar = px.bar(
+                    df_cat, 
+                    x='Valor_Item', 
+                    y='Categoria', 
+                    orientation='h', 
+                    text_auto='$.2f',
+                    color='Categoria'
+                )
+                fig_bar.update_layout(height=400, showlegend=False)
+                st.plotly_chart(fig_bar, use_container_width=True)
+
+                st.write("---")
+                # GRÁFICO 2: Sunburst (Tamanho gigante para caber os itens)
+                st.subheader("Detalhamento por Item")
+                fig_sun = px.sunburst(
+                    df_notas_filtrado, 
+                    path=['Categoria', 'Item'], 
+                    values='Valor_Item'
+                )
+                # Força o gráfico a ter 700 pixels de altura e tirar as margens
+                fig_sun.update_layout(height=700, margin=dict(t=10, l=0, r=0, b=10))
+                fig_sun.update_traces(textinfo="label+value")
+                st.plotly_chart(fig_sun, use_container_width=True)
                 
-                # Filtro de data simples
-                datas_disponiveis = df_notas['Data'].unique().tolist()
-                data_selecionada = st.multiselect("Filtrar por Data das Notas", datas_disponiveis, default=datas_disponiveis)
-                
-                df_notas_filtrado = df_notas[df_notas['Data'].isin(data_selecionada)]
-                
-                if not df_notas_filtrado.empty:
-                    # Agrupa para fazer o Gráfico por Item e Categoria
-                    fig = px.sunburst(
-                        df_notas_filtrado, 
-                        path=['Categoria', 'Item'], 
-                        values='Valor_Item',
-                        title="Gastos Detalhados por Item (Dados Extraídos das Notas)"
-                    )
-                    st.plotly_chart(fig)
-                    
-                    st.write("---")
-                    st.subheader("Itens Mapeados (Detalhamento)")
-                    st.dataframe(df_notas_filtrado)
+                st.write("---")
+                st.subheader("Tabela de Itens")
+                st.dataframe(df_notas_filtrado, use_container_width=True)
             else:
-                st.info("Colunas de valor não encontradas exatamente como o esperado para o cruzamento automático.")
+                st.info("Selecione pelo menos uma data para ver os gráficos.")
                 
-        except ValueError: # Erro caso as tabelas ainda não existam no banco
-            st.info("Ainda não existem dados salvos no banco. Faça upload de notas e planilhas para gerar os gráficos.")
-        except Exception as e:
-            st.error(f"Erro ao gerar gráficos: {e}")
-    else:
-        st.warning("⚠️ Banco de dados não conectado. Não é possível gerar os gráficos.")
+        # CRUZAMENTO (Se tiver Mobilis e Notas)
+        if tem_notas and tem_mobilis:
+            st.write("---")
+            st.subheader("🔍 Cruzamento: Notas vs Extrato (Mobilis)")
+            
+            coluna_valor_mobilis = [c for c in df_mobilis.columns if 'valor' in c.lower() or 'amount' in c.lower() or 'saída' in c.lower()]
+            
+            if coluna_valor_mobilis:
+                col_val = coluna_valor_mobilis[0]
+                df_mobilis['Valor_Banco_Positivo'] = pd.to_numeric(df_mobilis[col_val], errors='coerce').abs()
+                
+                st.write(f"Comparando os Valores Totais das Notas com a coluna '{col_val}' do extrato bancário.")
+                st.dataframe(df_mobilis[['Data', col_val, 'Valor_Banco_Positivo']].head())
+            else:
+                st.info("Não consegui encontrar automaticamente a coluna de 'Valor' na sua planilha.")
+                
+        if not tem_notas and not tem_mobilis:
+            st.info("Ainda não existem dados salvos no banco. Envie uma foto de nota ou a planilha para começar.")
