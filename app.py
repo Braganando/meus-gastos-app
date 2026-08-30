@@ -43,6 +43,7 @@ if imagem_selecionada:
             image = Image.open(imagem_selecionada)
             model = genai.GenerativeModel('gemini-3.6-flash')
             
+            # PROMPT ATUALIZADO: Proibido usar categorias genéricas
             prompt = """
             Analise esta imagem (recibo ou nota fiscal).
             Extraia CADA ITEM listado na nota e também o VALOR TOTAL pago na nota.
@@ -51,7 +52,7 @@ if imagem_selecionada:
             1. "Data": Data da compra (DD/MM/AAAA).
             2. "Item": Nome do produto.
             3. "Valor_Item": Preço daquele item (só número, ex: 15.50).
-            4. "Categoria": Categoria lógica do item (Açougue, Bebidas, Padaria, Farmácia, Limpeza, Hortifruti, etc).
+            4. "Categoria": Categoria lógica do item. REGRA: NÃO use categorias genéricas como 'Alimentação', 'Supermercado' ou 'Compras'. Seja super específico (ex: Açougue, Padaria, Hortifruti, Limpeza, Higiene, Bebidas, Laticínios, etc).
             5. "Valor_Total_Nota": O valor total final da nota inteira.
             
             Retorne EXCLUSIVAMENTE um formato JSON válido (uma lista de dicionários).
@@ -72,7 +73,7 @@ if imagem_selecionada:
             if engine:
                 if st.button("Salvar Itens no Banco de Dados"):
                     df_itens.to_sql('gastos_itens', engine, if_exists='append', index=False)
-                    st.success("Itens salvos no Supabase com sucesso! Vá para a aba Dashboard para ver os gráficos.")
+                    st.success("Itens salvos no Supabase com sucesso!")
             else:
                 st.warning("⚠️ Configure o Supabase para salvar os dados.")
                 
@@ -117,22 +118,36 @@ with aba4:
         try:
             df_mobilis = pd.read_sql_table('gastos_bancarios', engine)
             if not df_mobilis.empty:
-                # Padroniza as colunas do Mobilis
-                col_val = [c for c in df_mobilis.columns if 'valor' in c.lower() or 'amount' in c.lower() or 'saída' in c.lower()]
-                col_val = col_val[0] if col_val else None
                 
+                # Identifica as colunas do Mobilis
+                col_val = [c for c in df_mobilis.columns if 'valor' in c.lower() or 'amount' in c.lower() or 'saída' in c.lower()][0]
                 col_cat = [c for c in df_mobilis.columns if 'categoria' in c.lower()]
                 col_cat = col_cat[0] if col_cat else 'Categoria'
-                if col_cat not in df_mobilis.columns: df_mobilis[col_cat] = 'Outros'
-                
                 col_desc = [c for c in df_mobilis.columns if 'descri' in c.lower()]
                 col_desc = col_desc[0] if col_desc else 'Descrição'
-                if col_desc not in df_mobilis.columns: df_mobilis[col_desc] = 'Despesa'
+                col_tipo = [c for c in df_mobilis.columns if 'tipo' in c.lower()]
                 
-                if col_val:
-                    df_mobilis['Valor_Num'] = pd.to_numeric(df_mobilis[col_val], errors='coerce').abs()
-                    df_mobilis['Data_str'] = pd.to_datetime(df_mobilis['Data'], dayfirst=True, errors='coerce').dt.strftime('%d/%m/%Y')
-                    tem_mobilis = True
+                df_mobilis['Valor_Original'] = pd.to_numeric(df_mobilis[col_val], errors='coerce')
+                
+                # 1. FILTRO: APENAS DESPESAS
+                if col_tipo:
+                    # Se tiver a coluna Tipo, filtra apenas "Despesa"
+                    df_mobilis = df_mobilis[df_mobilis[col_tipo[0]].astype(str).str.contains('despesa|saída', case=False, na=True)]
+                else:
+                    # Se não tiver coluna Tipo, assume que despesas são valores negativos e remove as receitas (positivos)
+                    df_mobilis = df_mobilis[df_mobilis['Valor_Original'] < 0]
+                
+                # Transforma tudo em positivo para o gráfico
+                df_mobilis['Valor_Num'] = df_mobilis['Valor_Original'].abs()
+                
+                # 2. FILTRO: REMOVER PAGAMENTO DE CARTÃO DE CRÉDITO
+                termos_fatura = ['pagamento de cartão', 'pagamento de fatura', 'fatura do cartão', 'cartão de crédito']
+                mascara_fatura = df_mobilis[col_cat].astype(str).str.lower().str.contains('|'.join(termos_fatura), na=False) | \
+                                 df_mobilis[col_desc].astype(str).str.lower().str.contains('pagamento de fatura|pagamento de cartão', na=False)
+                df_mobilis = df_mobilis[~mascara_fatura]
+
+                df_mobilis['Data_str'] = pd.to_datetime(df_mobilis['Data'], dayfirst=True, errors='coerce').dt.strftime('%d/%m/%Y')
+                tem_mobilis = True
         except ValueError:
             pass
 
@@ -141,47 +156,39 @@ with aba4:
             master_records = []
             notas_usadas = set()
             
-            # Prepara as notas agrupadas por Data e Valor Total
             if tem_notas:
                 notas_agrupadas = df_notas.groupby(['Data', 'Valor_Total_Nota'])
             else:
                 notas_agrupadas = []
 
-            # 1. Varre o Mobilis linha por linha
             for idx, row in df_mobilis.iterrows():
                 data_mob = row['Data_str']
                 val_mob = row['Valor_Num']
                 match_encontrado = False
                 
                 if pd.notna(data_mob) and pd.notna(val_mob) and tem_notas:
-                    # Procura uma nota fiscal que bata com a Data e o Valor (com tolerância de 50 centavos para arredondamentos)
                     for (g_date, g_val), group in notas_agrupadas:
                         if g_date == data_mob and abs(g_val - val_mob) < 0.50:
                             if (g_date, g_val) not in notas_usadas:
-                                # ACHOU! Em vez de adicionar a linha do Mobilis, adiciona os itens detalhados
                                 for _, item_row in group.iterrows():
                                     master_records.append({
                                         'Data': g_date,
                                         'Descrição': item_row['Item'],
                                         'Categoria': item_row['Categoria'],
-                                        'Valor': item_row['Valor_Item'],
-                                        'Origem': 'Detalhado (Nota)'
+                                        'Valor': item_row['Valor_Item']
                                     })
                                 notas_usadas.add((g_date, g_val))
                                 match_encontrado = True
                                 break
                 
-                # Se não achou nota fiscal para essa despesa, mantém o dado original do Mobilis
                 if not match_encontrado:
                     master_records.append({
                         'Data': data_mob,
                         'Descrição': row[col_desc],
                         'Categoria': row[col_cat],
-                        'Valor': val_mob,
-                        'Origem': 'Mobilis (Macro)'
+                        'Valor': val_mob
                     })
             
-            # 2. Adiciona as notas que foram lidas mas que por algum motivo não estavam no Mobilis ainda
             if tem_notas:
                 for (g_date, g_val), group in notas_agrupadas:
                     if (g_date, g_val) not in notas_usadas:
@@ -190,14 +197,25 @@ with aba4:
                                 'Data': g_date,
                                 'Descrição': item_row['Item'],
                                 'Categoria': item_row['Categoria'],
-                                'Valor': item_row['Valor_Item'],
-                                'Origem': 'Nota (Não encontrada no banco)'
+                                'Valor': item_row['Valor_Item']
                             })
             
-            # Cria a Tabela Mestra Final
             df_master = pd.DataFrame(master_records)
             
-            st.success(f"Cruzamento concluído! {len(notas_usadas)} notas fiscais foram mescladas com sucesso aos dados do Mobilis.")
+            # 3. LUPA (DESTRINCHAR) CATEGORIAS GENÉRICAS
+            def destrinchar(row):
+                cat = str(row['Categoria']).strip()
+                desc = str(row['Descrição']).strip()
+                categorias_genericas = ['outros', 'compras', 'serviços', 'servicos', 'supermercado', 'alimentação', 'alimentacao']
+                
+                # Se a categoria for genérica, o nome vira "Categoria: Descrição do Item"
+                if cat.lower() in categorias_genericas:
+                    return f"{cat}: {desc}"
+                return cat
+            
+            df_master['Categoria'] = df_master.apply(destrinchar, axis=1)
+            
+            # ----------------------------------------------------
             
             # Filtro por Período
             datas_unicas = df_master['Data'].dropna().unique().tolist()
@@ -206,8 +224,7 @@ with aba4:
             
             if not df_master_filtrado.empty:
                 st.write("---")
-                # GRÁFICO DE BARRAS DE TODAS AS DESPESAS
-                st.subheader("Todas as Despesas por Categoria")
+                st.subheader("Despesas 100% Detalhadas")
                 
                 df_cat = df_master_filtrado.groupby('Categoria')['Valor'].sum().reset_index()
                 df_cat = df_cat.sort_values(by='Valor', ascending=True)
@@ -220,7 +237,10 @@ with aba4:
                     text_auto='R$ %.2f',
                     color='Categoria'
                 )
-                fig_bar.update_layout(height=600, showlegend=False, xaxis_title="Valor Gasto (R$)", yaxis_title="")
+                
+                # Deixei o gráfico com altura dinâmica para caber todas as categorias perfeitamente
+                altura = max(400, len(df_cat) * 35)
+                fig_bar.update_layout(height=altura, showlegend=False, xaxis_title="Valor Gasto (R$)", yaxis_title="")
                 st.plotly_chart(fig_bar, use_container_width=True)
                 
                 st.write("---")
