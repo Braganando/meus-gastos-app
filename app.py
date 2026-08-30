@@ -4,6 +4,7 @@ import pandas as pd
 import json
 import io
 import datetime
+import re
 from PIL import Image
 from sqlalchemy import create_engine
 import plotly.express as px
@@ -24,37 +25,18 @@ aba1, aba2, aba3, aba4 = st.tabs(["📸 Tirar Foto", "📁 Foto da Galeria", "�
 
 imagem_selecionada = None
 
-# A NOVA LISTA OFICIAL E IMUTÁVEL DE CATEGORIAS
+# A NOVA LISTA OFICIAL COM "TERAPIAS" ADICIONADA
 CATEGORIAS_VALIDAS = [
-    "Açougue / Carnes",
-    "Hortifruti",
-    "Padaria e Confeitaria",
-    "Laticínios e Frios",
-    "Mercearia / Alimentos Básicos",
-    "Bebidas (Depósitos e Cervejarias)",
-    "Restaurantes e Delivery",
-    "Produtos de Limpeza",
-    "Produtos de Higiene Pessoal",
-    "Farmácia e Saúde",
-    "Pet Shop",
-    "Utilidades Domésticas",
-    "Papelaria",
-    "Vestuário / Calçados",
-    "E-commerce e Marketplaces",
-    "Casa, Móveis e Decoração",
-    "Eletrônicos e Informática",
-    "Beleza e Cosméticos",
-    "Combustível e Outros Gastos",
-    "Honda Fit",
-    "Transporte",
-    "Contas Fixas e Telecom",
-    "Assinaturas e Serviços Digitais",
-    "Seguros",
-    "Impostos, Taxas e Tarifas Bancárias",
-    "Educação"
+    "Açougue / Carnes", "Hortifruti", "Padaria e Confeitaria", "Laticínios e Frios",
+    "Mercearia / Alimentos Básicos", "Bebidas (Depósitos e Cervejarias)", "Restaurantes e Delivery",
+    "Produtos de Limpeza", "Produtos de Higiene Pessoal", "Farmácia e Saúde", "Terapias",
+    "Pet Shop", "Utilidades Domésticas", "Papelaria", "Vestuário / Calçados",
+    "E-commerce e Marketplaces", "Casa, Móveis e Decoração", "Eletrônicos e Informática",
+    "Beleza e Cosméticos", "Combustível e Outros Gastos", "Honda Fit", "Transporte",
+    "Contas Fixas e Telecom", "Assinaturas e Serviços Digitais", "Seguros",
+    "Impostos, Taxas e Tarifas Bancárias", "Educação"
 ]
 
-# O CÉREBRO TRADUTOR DO MOBILIS E CARTÕES
 def mapear_categoria_mobilis(descricao, categoria_antiga):
     texto = f"{descricao} {categoria_antiga}".lower()
     
@@ -69,6 +51,7 @@ def mapear_categoria_mobilis(descricao, categoria_antiga):
         "Produtos de Limpeza": ['limpeza', 'sabao', 'detergente', 'desinfetante', 'amaciante', 'vassoura', 'lava louca'],
         "Produtos de Higiene Pessoal": ['higiene', 'sabonete', 'shampoo', 'creme dental', 'desodorante'],
         "Farmácia e Saúde": ['farmacia', 'droga', 'pague menos', 'raia', 'drogasil', 'rdsaude', 'montouro', 'farmasite', 'drogalsaojoao', 'medico', 'dentista', 'clinica', 'hospital', 'exame', 'laboratorio', 'otica visao', 'fisioterapia', 'odontologia', 'clara borato', 'isabel cristina', 'htm*r kos', 'unimed', 'remedio', 'remédio'],
+        "Terapias": ['terapia', 'psicologo', 'psiquiatra', 'psicanalista', 'francisco de assis martin'],
         "Pet Shop": ['pet', 'racao', 'veterinario', 'latidos e miados'],
         "Utilidades Domésticas": ['utilidade', 'casa', 'panela', 'pote', 'embalagem', 'flavio embalagens'],
         "Papelaria": ['papelaria', 'caderno', 'lapis', 'caneta', 'sulfite', 'akiten'],
@@ -92,6 +75,16 @@ def mapear_categoria_mobilis(descricao, categoria_antiga):
             return cat_oficial
             
     return "Outros"
+
+# LIMPADOR DE TEXTO (Para os débitos do Santander)
+def limpar_descricao(desc):
+    desc = str(desc).upper()
+    # Remove textos inúteis do Santander e do C6 para deixar só o nome da loja
+    desc = re.sub(r'COMPRA CARTAO DEB MC \d{2}/\d{2} ', 'Débito: ', desc)
+    desc = re.sub(r'COMPRA CARTAO DEB MC ', 'Débito: ', desc)
+    desc = re.sub(r'PIX ENVIADO PARA ', 'Pix: ', desc)
+    desc = re.sub(r'PIX ENVIADO ', 'Pix: ', desc)
+    return desc.title()
 
 # ---------------- ABA 1 e 2: GEMINI ----------------
 with aba1:
@@ -243,14 +236,15 @@ with aba4:
                                     break
                 
                 if not match_encontrado:
-                    desc_banco = str(row[col_desc]).title()
+                    # Limpa a descrição para ficar mais legível
+                    desc_banco_limpa = limpar_descricao(row[col_desc])
                     cat_banco = str(row[col_cat]).title()
                     
-                    cat_traduzida = mapear_categoria_mobilis(desc_banco, cat_banco)
+                    cat_traduzida = mapear_categoria_mobilis(desc_banco_limpa, cat_banco)
                     
                     master_records.append({
                         'Data_Obj': data_mob,
-                        'Descrição': desc_banco,
+                        'Descrição': desc_banco_limpa,
                         'Categoria': cat_traduzida,
                         'Valor': val_mob
                     })
@@ -304,7 +298,7 @@ with aba4:
                 st.subheader("🔍 Auditoria da Categoria 'Outros'")
                 df_outros = df_master_filtrado[df_master_filtrado['Categoria'] == 'Outros']
                 if not df_outros.empty:
-                    st.write("Veja se deseja criar uma nova regra para estas despesas que caíram em 'Outros':")
+                    st.write("Gastos não reconhecidos. Agora os nomes dos Débitos estão muito mais limpos para você identificar:")
                     df_outros_display = df_outros.copy()
                     df_outros_display['Data'] = df_outros_display['Data_Obj'].dt.strftime('%d/%m/%Y')
                     df_outros_display = df_outros_display[['Data', 'Descrição', 'Valor']]
